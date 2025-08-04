@@ -29,7 +29,7 @@ sls deploy
 ### Frontend Setup
 
 ```bash
-# SSO Frontend
+# SSO Frontend, Client App, Admin Portal
 cd frontend/sso_frontend, client_app, admin_portal
 npm install
 npm run dev
