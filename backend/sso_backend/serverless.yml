@@ -1,0 +1,146 @@
+service: matt-cognito-hop-sso-backend
+
+frameworkVersion: '4'
+
+provider:
+  name: aws
+  runtime: python3.12
+  region: ap-southeast-2
+  stage: ${opt:stage, 'dev'}
+  memorySize: 128
+  timeout: 10
+  environment: ${file(./.env.${self:provider.stage}.yml)}
+  httpApi:
+    cors: true
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:BatchWriteItem
+          Resource: 
+            - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.MAIN_TABLE}
+            - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.MAIN_TABLE}/index/*
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: arn:aws:logs:${self:provider.region}:*:*
+        - Effect: Allow
+          Action:
+            - cognito-idp:UpdateUserAttributes
+            - cognito-idp:GetUser
+            - cognito-idp:AdminUpdateUserAttributes
+          Resource: arn:aws:cognito-idp:${self:provider.region}:*:userpool/${self:provider.environment.COGNITO_USER_POOL_ID}
+
+functions:
+  # Cognito Triggers
+  preSignUp:
+    handler: app.handlers.triggers.pre_signup.handler
+    description: "Triggered before user signs up to handle social login and duplicate checks"
+    environment: ${self:provider.environment}
+    
+  postConfirmation:
+    handler: app.handlers.triggers.post_confirmation.handler
+    description: "Triggered after user confirms registration in Cognito"
+    environment: ${self:provider.environment}
+  
+  postSignIn:
+    handler: app.handlers.triggers.post_signin.handler
+    description: "Triggered after user signs in to check authorization status"
+    environment: ${self:provider.environment}
+  
+  # HTTP APIs
+  validateAppChannel:
+    handler: app.handlers.http.validate_app_channel.handler
+    description: "Validates if application_id + channel_id combination exists"
+    events:
+      - httpApi:
+          path: /validate-app-channel
+          method: get
+  
+  checkAppUser:
+    handler: app.handlers.http.check_app_user.handler
+    description: "Checks if user is authorized for the specified application"
+    events:
+      - httpApi:
+          path: /check-app-user
+          method: get
+  
+  initSession:
+    handler: app.handlers.http.init_session.handler
+    description: "Stores cognito tokens and returns a session_id"
+    events:
+      - httpApi:
+          path: /init-session
+          method: post
+  
+  getSession:
+    handler: app.handlers.http.get_session.handler
+    description: "Retrieves cognito tokens by session_id"
+    events:
+      - httpApi:
+          path: /get-session
+          method: get
+  
+  authorizeApplication:
+    handler: app.handlers.http.authorize_application.handler
+    description: "Handles user consent and creates authorization grants"
+    events:
+      - httpApi:
+          path: /authorize-application
+          method: post
+
+  getUserAuthorizations:
+    handler: app.handlers.http.get_user_authorizations.handler
+    description: "Gets all applications that the current user has authorized"
+    events:
+      - httpApi:
+          path: /user-authorizations
+          method: get
+
+  revokeUserAuthorization:
+    handler: app.handlers.http.revoke_user_authorization.handler
+    description: "Revokes user's authorization for a specific application"
+    events:
+      - httpApi:
+          path: /user-authorizations/{application_id}
+          method: delete
+
+  updateUserProfile:
+    handler: app.handlers.http.update_user_profile.handler
+    description: "Updates user profile information in Cognito"
+    events:
+      - httpApi:
+          path: /user-profile
+          method: patch
+
+  getUserSessions:
+    handler: app.handlers.http.get_user_sessions.lambda_handler
+    description: "Gets all sessions for the current user"
+    events:
+      - httpApi:
+          path: /user-sessions
+          method: get
+
+  revokeUserSession:
+    handler: app.handlers.http.revoke_user_session.lambda_handler
+    description: "Revokes a specific session or performs bulk session operations"
+    events:
+      - httpApi:
+          path: /user-sessions/{session_id}
+          method: delete
+
+plugins:
+  - serverless-python-requirements
+
+custom:
+  pythonRequirements:
+    dockerizePip: false
